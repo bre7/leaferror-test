@@ -1,5 +1,5 @@
-import FluentSQLite
 import Vapor
+import Leaf
 
 /// Called before your application initializes.
 ///
@@ -10,7 +10,10 @@ public func configure(
     _ services: inout Services
 ) throws {
     /// Register providers first
-    try services.register(FluentSQLiteProvider())
+    try services.register(LeafProvider())
+    services.register { worker in
+        return try LeafErrorMiddleware(environment: worker.environment, log: worker.make())
+    }
 
     /// Register routes to the router
     let router = EngineRouter.default()
@@ -22,26 +25,7 @@ public func configure(
     /// middlewares.use(FileMiddleware.self) // Serves files from `Public/` directory
     middlewares.use(DateMiddleware.self) // Adds `Date` header to responses
     middlewares.use(ErrorMiddleware.self) // Catches errors and converts to HTTP response
+    middlewares.use(LeafErrorMiddleware.self)
     services.register(middlewares)
-
-    // Configure a SQLite database
-    let sqlite: SQLiteDatabase
-    if env.isRelease {
-        /// Create file-based SQLite db using $SQLITE_PATH from process env
-        sqlite = try SQLiteDatabase(storage: .file(path: Environment.get("SQLITE_PATH")!))
-    } else {
-        /// Create an in-memory SQLite database
-        sqlite = try SQLiteDatabase(storage: .memory)
-    }
-
-    /// Register the configured SQLite database to the database config.
-    var databases = DatabaseConfig()
-    databases.add(database: sqlite, as: .sqlite)
-    services.register(databases)
-
-    /// Configure migrations
-    var migrations = MigrationConfig()
-    migrations.add(model: Todo.self, database: .sqlite)
-    services.register(migrations)
 
 }
