@@ -9,6 +9,7 @@ public func configure(
     _ env: inout Environment,
     _ services: inout Services
 ) throws {
+    config.prefer(LeafRenderer.self, for: TemplateRenderer.self)
     /// Register providers first
     try services.register(LeafProvider())
     services.register { worker in
@@ -24,7 +25,7 @@ public func configure(
     var middlewares = MiddlewareConfig() // Create _empty_ middleware config
     /// middlewares.use(FileMiddleware.self) // Serves files from `Public/` directory
     middlewares.use(DateMiddleware.self) // Adds `Date` header to responses
-    middlewares.use(ErrorMiddleware.self) // Catches errors and converts to HTTP response
+//    middlewares.use(ErrorMiddleware.self) // Catches errors and converts to HTTP response
     middlewares.use(LeafErrorMiddleware.self)
     services.register(middlewares)
 
