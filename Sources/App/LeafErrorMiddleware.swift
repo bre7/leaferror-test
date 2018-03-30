@@ -1,5 +1,4 @@
 import Vapor
-import Leaf
 
 /// Captures all errors and transforms them into an internal server error.
 public final class LeafErrorMiddleware: Middleware, Service {
@@ -17,18 +16,19 @@ public final class LeafErrorMiddleware: Middleware, Service {
 
     /// See `Middleware.respond`
     public func respond(to req: Request, chainingTo next: Responder) throws -> Future<Response> {
-        let renderer = try req.make(LeafRenderer.self)
-        let promise = req.eventLoop.newPromise(Response.self)
+        // Must set the preferred renderer:
+        // e.g. config.prefer(LeafRenderer.self, for: TemplateRenderer.self)
+        let renderer = try req.make(TemplateRenderer.self)
 
-        func handleError(with status: HTTPStatus) {
+        func handleError(with status: HTTPStatus) throws -> Future<Response> {
             if status == .notFound {
                 do {
-                    try renderer
+                    return try renderer
                         .render("404")
                         .encode(for: req)
-                        .do { res in
+                        .map(to: Response.self) { res in
                             res.http.status = status
-                            promise.succeed(result: res)
+                            return res
                     }
                 } catch { /* swallow so we return the default view */ }
             }
@@ -38,40 +38,36 @@ public final class LeafErrorMiddleware: Middleware, Service {
                     "status": status.code.description,
                     "statusMessage": status.reasonPhrase
                 ]
-                try renderer
+                return try renderer
                     .render("serverError", parameters)
                     .encode(for: req)
-                    .do { res in
+                    .map(to: Response.self) { res in
                         res.http.status = status
-                        promise.succeed(result: res)
+                        return res
                 }
             } catch {
                 let body = "<h1>Internal Error</h1><p>There was an internal error. Please try again later.</p>"
-                try! body.encode(for: req).do { res in
-                    res.http.status = status
-                    res.http.headers.replaceOrAdd(name: .contentType, value: "text/html; charset=utf-8")
-                    promise.succeed(result: res)
+                return try body.encode(for: req)
+                    .map(to: Response.self) { res in
+                        res.http.status = status
+                        res.http.headers.replaceOrAdd(name: .contentType, value: "text/html; charset=utf-8")
+                        return res
                 }
             }
         }
 
         do {
-//            try next.respond(to: req).do { res in
-//                if res.http.status != .ok {
-//                    handleError(with: res.http.status)
-//                } else {
-//                    promise.succeed(result: res)
-//                }
-//            }.catch { error in
-//                handleError(with: HTTPStatus(error))
-//            }
-            promise.succeed(result: req.makeResponse()) // Ignore promise leak
             return try next.respond(to: req)
+                .flatMap(to: Response.self) { res in
+                    if res.http.status.code >= HTTPResponseStatus.badRequest.code {
+                        return try handleError(with: res.http.status)
+                    } else {
+                        return try res.encode(for: req)
+                    }
+            }
         } catch {
-            handleError(with: HTTPStatus(error))
+            return try handleError(with: HTTPStatus(error))
         }
-
-        return promise.futureResult
     }
 }
 
